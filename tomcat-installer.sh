@@ -23,10 +23,9 @@ define tomcat_installer_init <<'EOF'
     local tomcat_installer_repo_dir="${TOMCAT_INSTALLER_REPO_DIR:-${tomcat_installer_repo_dir:-/opt/repo/tomcat}}"
     local tomcat_installer_target_dir="${TOMCAT_INSTALLER_TARGET_DIR:-${tomcat_installer_target_dir:-/opt}}"
     local tomcat_installer_mirror="${TOMCAT_INSTALLER_MIRROR:-${tomcat_installer_mirror:-apache.osuosl.org}}"
-    local tomcat_installer_tomcat_dir="${tomcat_installer_target_dir}/apache-tomcat-${tomcat_installer_tomcat_version}"
+    local tomcat_installer_tomcat_dir="${TOMCAT_INSTALLER_TARGET_DIR:-${tomcat_installer_target_dir:-/opt}}/apache-tomcat-${TOMCAT_INSTALLER_TOMCAT_VERSION:-${tomcat_installer_tomcat_version:-8.5.15}}"
+    local tomcat_installer_tomcat_tgz_file="${TOMCAT_INSTALLER_TOMCAT_TGZ_FILE:-${tomcat_installer_tomcat_tgz_file:-apache-tomcat-${tomcat_installer_tomcat_version}.tar.gz}}"
 EOF
-
-source /dev/stdin <<<"${tomcat_installer_init}"
 
 declare -A tomcat_installer_context=(
     ["tomcat_version"]="${TOMCAT_INSTALLER_TOMCAT_VERSION:-${tomcat_installer_tomcat_version:-8.5.15}}"
@@ -37,6 +36,7 @@ declare -A tomcat_installer_context=(
     ["mirror"]="${TOMCAT_INSTALLER_MIRROR:-${tomcat_installer_mirror:-apache.osuosl.org}}"
     ["tomcat_dir"]="${TOMCAT_INSTALLER_TARGET_DIR:-${tomcat_installer_target_dir:-/opt}}/apache-tomcat-${TOMCAT_INSTALLER_TOMCAT_VERSION:-${tomcat_installer_tomcat_version:-8.5.15}}"
     )
+#    ["tomcat_tgz_file"]="${TOMCAT_INSTALLER_TOMCAT_TGZ_FILE:-${tomcat_installer_tomcat_tgz_file:-apache-tomcat-${tomcat_installer_tomcat_version}.tar.gz}}"
 
 function tomcat_installer_help() {
     cat <<-EOF
@@ -72,12 +72,11 @@ function tomcat_installer_help() {
 }
 
 function tomcat_installer_create_user() {
-    groupadd "${tomcat_installer_tomcat_group}"
-    useradd -s /bin/false -g "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_user}"
+    id -ng  "${tomcat_installer_tomcat_group}" || sudo groupadd "${tomcat_installer_tomcat_group}"
+    id -nu "${tomcat_installer_tomcat_user}" || sudo useradd -s /bin/false -g "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_user}"
 }
 
 function tomcat_installer_download() {
-    local tomcat_tgz_file="apache-tomcat-${tomcat_installer_tomcat_version}.tar.gz"
     local tomcat_major_version="${tomcat_installer_tomcat_version:0:1}"
     local tomcat_major_folder="tomcat-${tomcat_major_version}"
 
@@ -85,7 +84,7 @@ function tomcat_installer_download() {
 
     wget --no-clobber \
          --directory-prefix="${tomcat_installer_repo_dir}" \
-         "http://${mirror}/tomcat/${tomcat_major_folder}/v${tomcat_installer_tomcat_version}/bin/${tomcat_tgz_file}"
+         "http://${tomcat_installer_mirror}/tomcat/${tomcat_major_folder}/v${tomcat_installer_tomcat_version}/bin/${tomcat_installer_tomcat_tgz_file}"
 }
 
 function tomcat_installer_install() {
@@ -93,25 +92,42 @@ function tomcat_installer_install() {
     tomcat_installer_create_user
 
     # create tomcat directory
-    create_user_directory "${tomcat_installer_tomcat_dir}" "${tomcat_installer_tomcat_user}" "${tomcat_installer_tomcat_group}"
+#    create_user_directory "${tomcat_installer_tomcat_dir}" "${tomcat_installer_tomcat_user}" "${tomcat_installer_tomcat_group}"
+    create_user_directory "${tomcat_installer_tomcat_dir}" 
 
     # unzip tomcat file
-    tar -xzf "${tomcat_installer_repo_dir}/${tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
+    tar -xzf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
 
     # set owner to tomcat
-    chown -R "${tomcat_installer_tomcat_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_dir}"
+    # catalina_home files should be owned by an administrative user, possibly without a login
+    # catalina_home administrative user can belong to its own group
+    # catalina_home service user will run the service
+    # catalina_home service user should belong to a service group as well
+    # privileges should be rw for the administrative user owner
+    # privileges should be ro for the service group
+    # privileges should be none for other
+    # catalina_home work, temp, and logs directory owned by service user
+    #
+    # catalina_base owned by an instance administrative account, possibly without a login
+    # catalina_base administrative user can belong to its own group
+    # catalina_base service user will run the service
+    # catalina_base service user should belong to the catalina_home service group 
+    # catalina base files should use castalina_home service group since the service will need ro from catalina_home
 
     # create symbolic link to tomcat directory
     ln -s "${tomcat_installer_tomcat_dir}" "${tomcat_installer_target_dir}/tomcat"
-    chown -h "${tomcat_installer_tomcat_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_target_dir}/tomcat"
+    sudo chown -h "${tomcat_installer_tomcat_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_target_dir}/tomcat"
 
-    # grant permissions to tomcat user, group, and root
-    chgrp -R "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_dir}/conf"
-    chown "${USER}" "${tomcat_installer_tomcat_dir}/conf"
-    chmod g+rwx "${tomcat_installer_tomcat_dir}/conf"
-    chmod g+r "${tomcat_installer_tomcat_dir}/conf/*"
-    chown -R "${tomcat_installer_tomcat_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_dir}/work/" "${tomcat_installer_tomcat_dir}/temp/" "${tomcat_installer_tomcat_dir}/logs/"
-    chown root "${tomcat_installer_tomcat_dir}/conf"
+    # grant permissions on work, temp, and logs to service user
+    sudo chown -R "${tomcat_installer_tomcat_user}:${tomcat_installer_tomcat_group}" \
+                  "${tomcat_installer_tomcat_dir}/work/" \
+                  "${tomcat_installer_tomcat_dir}/temp/" \
+                  "${tomcat_installer_tomcat_dir}/logs/"
+
+    # this may only be necessary for Talend since it modifies files in conf dir
+    sudo chgrp -R "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_dir}/conf"
+    sudo chmod g+rwx "${tomcat_installer_tomcat_dir}/conf"
+    sudo chmod g+r "${tomcat_installer_tomcat_dir}/conf/*"
 }
 
 
