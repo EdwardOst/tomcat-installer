@@ -96,26 +96,27 @@ function tomcat_installer_install() {
     create_user_directory "${tomcat_installer_tomcat_dir}" 
 
     # unzip tomcat file
-    tar -xzf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
+    tar -xzpf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
 
-    # set owner to tomcat
     # catalina_home files should be owned by an administrative user, possibly without a login
-    # catalina_home administrative user can belong to its own group
-    # catalina_home service user will run the service
-    # catalina_home service user should belong to a service group as well
+    # catalina_home files should belong to administrative group
+    # selected administrative group members should be allowed to su to adminstrative account
     # privileges should be rw for the administrative user owner
-    # privileges should be ro for the service group
+    # privileges should be ro for the administrative group
     # privileges should be none for other
-    # catalina_home work, temp, and logs directory owned by service user
     #
-    # catalina_base owned by an instance administrative account, possibly without a login
-    # catalina_base administrative user can belong to its own group
+    # catalina_base files should be owned by an instance administrative account, possibly without a login
+    # catalina_base files should belong to same administrative group used by catalina_home
+    # selected administrative group members should be allowed to su to instance adminstrative account
+    # privileges should be rw for the instance administrative user owner
+    # privileges should be ro for the administrative group
+    # privileges should be none for other
     # catalina_base service user will run the service
-    # catalina_base service user should belong to the catalina_home service group 
-    # catalina base files should use castalina_home service group since the service will need ro from catalina_home
+    # catalina_base service user should belong to the catalina_home administrative group since it will need ro access to catalina_home and catalina_base files
+    # catalina_base work, temp, and logs directory owned by service user
 
     # create symbolic link to tomcat directory
-    ln -s "${tomcat_installer_tomcat_dir}" "${tomcat_installer_target_dir}/tomcat"
+    sudo ln -s "${tomcat_installer_tomcat_dir}" "${tomcat_installer_target_dir}/tomcat"
     sudo chown -h "${tomcat_installer_tomcat_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_target_dir}/tomcat"
 
     # grant permissions on work, temp, and logs to service user
@@ -127,7 +128,7 @@ function tomcat_installer_install() {
     # this may only be necessary for Talend since it modifies files in conf dir
     sudo chgrp -R "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_dir}/conf"
     sudo chmod g+rwx "${tomcat_installer_tomcat_dir}/conf"
-    sudo chmod g+r "${tomcat_installer_tomcat_dir}/conf/*"
+    sudo chmod g+r "${tomcat_installer_tomcat_dir}/conf/"*
 }
 
 
