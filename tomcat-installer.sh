@@ -123,26 +123,27 @@ function tomcat_installer_create_users() {
 
 function tomcat_installer_create_folders() {
     create_user_directory "${tomcat_installer_repo_dir}" "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_group}"
-#    chmod g+rx "${tomcat_installer_repo_dir}"
     create_user_directory "${tomcat_installer_tomcat_dir}" "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_group}"
-#    chmod g+rx "${tomcat_installer_tomcat_dir}"
 
     # create symbolic link to tomcat directory
-    sudo ln -s "${tomcat_installer_tomcat_dir}" "${tomcat_installer_target_dir}/tomcat"
-    sudo chown -h "${tomcat_installer_tomcat_admin}:${tomcat_installer_tomcat_group}" "${tomcat_installer_target_dir}/tomcat"
+    if [ ! -e "${tomcat_installer_target_dir}/tomcat" ]; then
+        sudo ln -s "${tomcat_installer_tomcat_dir}" "${tomcat_installer_target_dir}/tomcat"
+        sudo chown -h "${tomcat_installer_tomcat_admin_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_target_dir}/tomcat"
+    fi
 }
 
 function tomcat_installer_download() {
     local tomcat_major_version="${tomcat_installer_tomcat_version:0:1}"
     local tomcat_major_folder="tomcat-${tomcat_major_version}"
 
-    wget --no-clobber \
+    sudo -u "${tomcat_installer_tomcat_admin_user}" \
+         wget --no-clobber \
          --directory-prefix="${tomcat_installer_repo_dir}" \
          "http://${tomcat_installer_mirror}/tomcat/${tomcat_major_folder}/v${tomcat_installer_tomcat_version}/bin/${tomcat_installer_tomcat_tgz_file}"
 
-    chmod -R 740 "${tomcat_installer_repo_dir}"
-    chmod 750 $(find "${tomcat_installer_repo_dir}" -type d)
-    sudo chown -R "${tomcat_installer_tomcat_admin_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_repo_dir}"
+    #chmod -R 740 "${tomcat_installer_repo_dir}"
+    #chmod 750 $(find "${tomcat_installer_repo_dir}" -type d)
+    #sudo chown -R "${tomcat_installer_tomcat_admin_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_repo_dir}"
 }
 
 function tomcat_installer_install() {
