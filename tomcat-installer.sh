@@ -82,9 +82,14 @@ function tomcat_installer_help() {
 function tomcat_installer_create_users() {
 
     grep "${tomcat_installer_tomcat_group}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_group}"
+    grep "${tomcat_installer_install_user}" /etc/group || sudo groupadd "${tomcat_installer_install_user}"
+    grep "${tomcat_installer_tomcat_service_user}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_service_user}"
+    grep "${tomcat_installer_tomcat_admin_user}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_admin_user}"
+    grep "${tomcat_installer_tc_admin_user}" /etc/group || sudo groupadd "${tomcat_installer_tc_admin_user}"
     id -nu "${tomcat_installer_install_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_install_user}" "${tomcat_installer_install_user}"
     id -nu "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_service_user}" "${tomcat_installer_tomcat_service_user}"
     id -nu "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_admin_user}"
+    id -nu "${tomcat_installer_tc_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tc_admin_user}" "${tomcat_installer_tc_admin_user}"
 
     # all users belong to tomcat group
     sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_install_user}"
@@ -95,15 +100,15 @@ function tomcat_installer_create_users() {
     sudo usermod -a -G "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_install_user}"
     sudo usermod -a -G "${tomcat_installer_tomcat_tc_admin_user}" "${tomcat_installer_install_user}"
 
-    sudo tee /etc/sudoers.d/tomcat <<-EOF
+    sudo tee -a /etc/sudoers.d/tomcat <<-EOF
 	# members of tomcat_admin group can sudo to tomcat_admin user
 	%${tomcat_installer_tomcat_admin_user}	ALL=(${tomcat_installer_tomcat_admin_user}) ALL
 
 	# members of tomcat instance admin group can sudo to tomcat instance admin
 	%${tomcat_installer_tc_admin_user}	ALL=(${tomcat_installer_tc_admin_user}) ALL
 
-	# members of tomcat installer group can sudo to tomcat admin, tomcat instance admin
-	%${tomcat_installer_i_admin_user}	ALL=(${tomcat_installer_tomcat_admin_user} ${tomcat_installer_tc_admin_user}) ALL
+	# members of tomcat installer group can sudo to tomcat admin and tomcat instance admin without a password
+	%${tomcat_installer_install_user}	ALL=(${tomcat_installer_tomcat_admin_user},${tomcat_installer_tc_admin_user}) NOPASSWD: ALL
 	EOF
 
 }
@@ -115,7 +120,7 @@ function tomcat_installer_create_folders() {
 
     # create symbolic link to tomcat directory
     sudo ln -s "${tomcat_installer_tomcat_dir}" "${tomcat_installer_target_dir}/tomcat"
-    sudo chown -h "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_target_dir}/tomcat"
+    sudo chown -h "${tomcat_installer_tomcat_admin}:${tomcat_installer_tomcat_group}" "${tomcat_installer_target_dir}/tomcat"
 }
 
 function tomcat_installer_download() {
