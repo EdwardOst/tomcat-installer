@@ -18,7 +18,7 @@ source "${tomcat_installer_scope_context_path}"
 
 define tomcat_installer_init <<'EOF'
     local tomcat_installer_tomcat_version="${TOMCAT_INSTALLER_TOMCAT_VERSION:-${tomcat_installer_tomcat_version:-8.5.15}}"
-    local tomcat_installer_install_user="${TOMCAT_INSTALLER_INSTALL_USER:-${tomcat_installer_install_user:-tomcat_installer}}"
+    local tomcat_installer_install_user="${TOMCAT_INSTALLER_INSTALL_USER:-${tomcat_installer_install_user:-talend}}"
     local tomcat_installer_tomcat_admin_user="${TOMCAT_INSTALLER_TOMCAT_ADMIN_USER:-${tomcat_installer_tomcat_admin_user:-tomcat_admin}}"
     local tomcat_installer_tc_admin_user="${TOMCAT_INSTALLER_TC_ADMIN_USER:-${tomcat_installer_tc_admin_user:-tc_admin}}"
     local tomcat_installer_tomcat_service_user="${TOMCAT_INSTALLER_TOMCAT_SERVICE_USER:-${tomcat_installer_tomcat_service_user:-tomcat}}"
@@ -81,12 +81,10 @@ function tomcat_installer_help() {
 
 function tomcat_installer_create_users() {
 
-    [ "${#}" -lt 1 ] && echo -e "\nusage: tomcat_installer_create_users <install_user>" && return 1
-
-    id -ng  "${tomcat_installer_tomcat_group}" || sudo groupadd "${tomcat_installer_tomcat_group}"
-    id -nu "${tomcat_installer_install_user}" || sudo useradd -s /bin/false "${tomcat_installer_install_user}"
-    id -nu "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /bin/false "${tomcat_installer_tomcat_service_user}"
-    id -nu "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /bin/false "${tomcat_installer_tomcat_admin_user}"
+    grep "${tomcat_installer_tomcat_group}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_group}"
+    id -nu "${tomcat_installer_install_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_install_user}" "${tomcat_installer_install_user}"
+    id -nu "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_service_user}" "${tomcat_installer_tomcat_service_user}"
+    id -nu "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_admin_user}"
 
     # all users belong to tomcat group
     sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_install_user}"
@@ -97,7 +95,7 @@ function tomcat_installer_create_users() {
     sudo usermod -a -G "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_install_user}"
     sudo usermod -a -G "${tomcat_installer_tomcat_tc_admin_user}" "${tomcat_installer_install_user}"
 
-    cat > /etc/sudoers.d/tomcat <<-EOF
+    sudo tee /etc/sudoers.d/tomcat <<-EOF
 	# members of tomcat_admin group can sudo to tomcat_admin user
 	%${tomcat_installer_tomcat_admin_user}	ALL=(${tomcat_installer_tomcat_admin_user}) ALL
 
@@ -202,6 +200,8 @@ function tomcat_installer() {
                                             ["install"]="tomcat_installer_install"
                                             ["uninstall"]="tomcat_installer_uninstall"
                                             ["help"]="tomcat_installer_help"
+                                            ["create_users"]="tomcat_installer_create_users"
+                                            ["create_folders"]="tomcat_installer_create_folders"
                                           )
 
     declare -A tomcat_installer_descriptions=(
