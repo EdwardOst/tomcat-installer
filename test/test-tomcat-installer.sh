@@ -4,5 +4,5 @@ set -e
 source ../tomcat-installer.sh
 
 #tomcat_installer -h
-#tomcat_installer download
-tomcat_installer install
+tomcat_installer download
+#tomcat_installer install
