@@ -81,11 +81,18 @@ function tomcat_installer_help() {
 
 function tomcat_installer_create_users() {
 
-    grep "${tomcat_installer_tomcat_group}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_group}"
-    grep "${tomcat_installer_install_user}" /etc/group || sudo groupadd "${tomcat_installer_install_user}"
-    grep "${tomcat_installer_tomcat_service_user}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_service_user}"
-    grep "${tomcat_installer_tomcat_admin_user}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_admin_user}"
-    grep "${tomcat_installer_tc_admin_user}" /etc/group || sudo groupadd "${tomcat_installer_tc_admin_user}"
+#    grep "${tomcat_installer_tomcat_group}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_group}"
+#    grep "${tomcat_installer_install_user}" /etc/group || sudo groupadd "${tomcat_installer_install_user}"
+#    grep "${tomcat_installer_tomcat_service_user}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_service_user}"
+#    grep "${tomcat_installer_tomcat_admin_user}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_admin_user}"
+#    grep "${tomcat_installer_tc_admin_user}" /etc/group || sudo groupadd "${tomcat_installer_tc_admin_user}"
+
+    id -g "${tomcat_installer_tomcat_group}"  || sudo groupadd "${tomcat_installer_tomcat_group}"
+    id -g "${tomcat_installer_install_user}"  || sudo groupadd "${tomcat_installer_install_user}"
+    id -g "${tomcat_installer_tomcat_service_user}"  || sudo groupadd "${tomcat_installer_tomcat_service_user}"
+    id -g "${tomcat_installer_tomcat_admin_user}" || sudo groupadd "${tomcat_installer_tomcat_admin_user}"
+    id -g "${tomcat_installer_tc_admin_user}" || sudo groupadd "${tomcat_installer_tc_admin_user}"
+
     id -nu "${tomcat_installer_install_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_install_user}" "${tomcat_installer_install_user}"
     id -nu "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_service_user}" "${tomcat_installer_tomcat_service_user}"
     id -nu "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_admin_user}"
@@ -116,7 +123,9 @@ function tomcat_installer_create_users() {
 
 function tomcat_installer_create_folders() {
     create_user_directory "${tomcat_installer_repo_dir}" "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_group}"
+#    chmod g+rx "${tomcat_installer_repo_dir}"
     create_user_directory "${tomcat_installer_tomcat_dir}" "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_group}"
+#    chmod g+rx "${tomcat_installer_tomcat_dir}"
 
     # create symbolic link to tomcat directory
     sudo ln -s "${tomcat_installer_tomcat_dir}" "${tomcat_installer_target_dir}/tomcat"
