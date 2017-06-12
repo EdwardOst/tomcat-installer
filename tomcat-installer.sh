@@ -148,9 +148,8 @@ function tomcat_installer_download() {
 
 function tomcat_installer_install() {
 
-    tomcat_installer_create_user
-
     # unzip tomcat file
+    sudo -u "${tomcat_installer_tomcat_admin_user}" \
     tar -xzpf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
 
     # catalina_home files should be owned by an administrative user
