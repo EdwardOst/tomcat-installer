@@ -46,6 +46,7 @@ declare -A tomcat_installer_context=(
     )
 #    ["tomcat_tgz_file"]="${TOMCAT_INSTALLER_TOMCAT_TGZ_FILE:-${tomcat_installer_tomcat_tgz_file:-apache-tomcat-${tomcat_installer_tomcat_version}.tar.gz}}"
 
+
 function tomcat_installer_help() {
     cat <<-EOF
 	install tomcat
@@ -80,12 +81,6 @@ function tomcat_installer_help() {
 }
 
 function tomcat_installer_create_users() {
-
-#    grep "${tomcat_installer_tomcat_group}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_group}"
-#    grep "${tomcat_installer_install_user}" /etc/group || sudo groupadd "${tomcat_installer_install_user}"
-#    grep "${tomcat_installer_tomcat_service_user}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_service_user}"
-#    grep "${tomcat_installer_tomcat_admin_user}" /etc/group || sudo groupadd "${tomcat_installer_tomcat_admin_user}"
-#    grep "${tomcat_installer_tc_admin_user}" /etc/group || sudo groupadd "${tomcat_installer_tc_admin_user}"
 
     id -g "${tomcat_installer_tomcat_group}"  || sudo groupadd "${tomcat_installer_tomcat_group}"
     id -g "${tomcat_installer_install_user}"  || sudo groupadd "${tomcat_installer_install_user}"
@@ -183,6 +178,58 @@ function tomcat_installer_install() {
 }
 
 
+# tomcat_installer_create_instance
+#
+# create a tomcat instance following catalina_base conventions.
+#
+function tomcat_installer_create_instance() {
+
+    [ "${#}" -lt 2 ] && echo "ERROR: usage: tomcat_create_instance tomcatHomeDir tacTomcatDir" && return 1
+
+    local tomcat_installer_tomcat_dir="${1}"
+    local tomcat_installer_base_dir="${2}"
+
+    create_user_directory "${tomcat_installer_base_dir}" "${tomcat_installer_tc_admin_user}" "${tomcat_installer_tomcat_group}"
+
+    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/bin"
+    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/lib"
+    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/conf"
+    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/conf/policy.d"
+    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/webapps"
+
+    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/work"
+    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/temp"
+    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/logs"
+
+    sudo chown -R "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" \
+                  "${tomcat_installer_tomcat_dir}/work/" \
+                  "${tomcat_installer_tomcat_dir}/temp/" \
+                  "${tomcat_installer_tomcat_dir}/logs/"
+
+
+    debugLog "copy conf settings"
+    cp "${tomcat_installer_tomcat_dir}/conf/*" "${tomcat_installer_base_dir}/conf"
+
+    debugLog "remove last tomcat-users end tag"
+    cp -n "${tomcat_installer_base_dir}/conf/tomcat-users.xml" "${tomcat_installer_base_dir}/conf/tomcat-users.xml.orig"
+    cat "${tomcat_installer_base_dir}/conf/tomcat-users.xml.orig" | sed -e "s/^\(<\/tomcat-users>\)//" > "${tomcat_installer_base_dir}/conf/tomcat-users.xml"
+
+    debugLog "adding tomcat admin"
+    cat >> "${tomcat_installer_base_dir}/conf/tomcat-users.xml" <<-EOF
+	<user username="tadmin" password="tadmin" roles="manager-gui,admin-gui"/>
+	</tomcat-users>
+	EOF
+
+    debugLog "copy default tomcat apps"
+    cp -a "${tomcat_installer_tomcat_dir}/webapps/" "${tomcat_installer_base_dir}/"
+
+
+    debugLog "set up policy directory with logical link to default policy"
+    sudo -u "${tomcat_installer_tc_admin_user}" ln -s "${tomcat_installer_base_dir}/conf/catalina.policy" "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy"
+}
+
+
+
 function tomcat_installer() {
 
     declare -A tomcat_installer_options=(
@@ -210,12 +257,13 @@ function tomcat_installer() {
     declare -A tomcat_installer_args
 
     declare -A tomcat_installer_subcommands=(
-                                            ["download"]="tomcat_installer_download"
-                                            ["install"]="tomcat_installer_install"
-                                            ["uninstall"]="tomcat_installer_uninstall"
                                             ["help"]="tomcat_installer_help"
+                                            ["download"]="tomcat_installer_download"
                                             ["create_users"]="tomcat_installer_create_users"
                                             ["create_folders"]="tomcat_installer_create_folders"
+                                            ["install"]="tomcat_installer_install"
+                                            ["uninstall"]="tomcat_installer_uninstall"
+                                            ["create_instance"]="tomcat_installer_create_instance"
                                           )
 
     declare -A tomcat_installer_descriptions=(
@@ -262,3 +310,4 @@ function tomcat_installer() {
     "${tomcat_installer_command[@]}"
 
 }
+
