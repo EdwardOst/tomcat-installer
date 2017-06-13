@@ -143,10 +143,6 @@ function tomcat_installer_download() {
 
 function tomcat_installer_install() {
 
-    # unzip tomcat file
-    sudo -u "${tomcat_installer_tomcat_admin_user}" \
-    tar -xzpf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
-
     # catalina_home files should be owned by an administrative user
     # catalina_home files should belong to tomcat group
     # privileges should be rw for the administrative user owner
@@ -161,9 +157,16 @@ function tomcat_installer_install() {
     # privileges should be none for other
     # instance administrative group members should be allowed to su to instance adminstrative account
     #
+    # conf directory is rwx for owner, none for group, and none for other
+    # all other directories are rwx for owner, r-x for group, and none for other
+    #
     # catalina_base service user will run the service
     # catalina_base service user should belong to the tomcat group since it will need ro access to catalina_home and catalina_base files
     # catalina_base work, temp, and logs directory owned by service user
+
+    # unzip tomcat file
+    sudo -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" \
+    tar -xzpf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
 
     # grant permissions on work, temp, and logs to service user
     sudo chown -R "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" \
@@ -171,10 +174,14 @@ function tomcat_installer_install() {
                   "${tomcat_installer_tomcat_dir}/temp/" \
                   "${tomcat_installer_tomcat_dir}/logs/"
 
-    # this may only be necessary for Talend since it modifies files in conf dir
-    # sudo chgrp -R "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_dir}/conf"
-    # sudo chmod g+rwx "${tomcat_installer_tomcat_dir}/conf"
-    # sudo chmod g+r "${tomcat_installer_tomcat_dir}/conf/"*
+#    debugLog "add tomcat-users for manager"
+#    cp -n "${tomcat_installer_base_dir}/conf/tomcat-users.xml" "${tomcat_installer_base_dir}/conf/tomcat-users.xml.orig"
+#    cat "${tomcat_installer_base_dir}/conf/tomcat-users.xml.orig" | sed -e "s/^\(<\/tomcat-users>\)//" > "${tomcat_installer_base_dir}/conf/tomcat-users.xml"
+#    cat >> "${tomcat_installer_base_dir}/conf/tomcat-users.xml" <<-EOF
+#	<user username="tadmin" password="tadmin" roles="manager-gui,admin-gui"/>
+#	</tomcat-users>
+#	EOF
+
 }
 
 
@@ -189,40 +196,22 @@ function tomcat_installer_create_instance() {
     local tomcat_installer_tomcat_dir="${1}"
     local tomcat_installer_base_dir="${2}"
 
-    create_user_directory "${tomcat_installer_base_dir}" "${tomcat_installer_tc_admin_user}" "${tomcat_installer_tomcat_group}"
+    create_user_directory "${tomcat_installer_base_dir}" \
+                          "${tomcat_installer_tc_admin_user}" \
+                          "${tomcat_installer_tomcat_group}"
 
-    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/bin"
-    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/lib"
-    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/conf"
-    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/conf/policy.d"
-    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/webapps"
+    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/bin"
+    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/lib"
+    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/conf"
+    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/conf/policy.d"
+    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/webapps"
 
-    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/work"
-    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/temp"
-    sudo -u "${tomcat_installer_tc_admin_user}" mkdir "${tomcat_installer_base_dir}/logs"
-
-    sudo chown -R "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" \
-                  "${tomcat_installer_tomcat_dir}/work/" \
-                  "${tomcat_installer_tomcat_dir}/temp/" \
-                  "${tomcat_installer_tomcat_dir}/logs/"
-
+    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/work"
+    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/temp"
+    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/logs"
 
     debugLog "copy conf settings"
-    cp "${tomcat_installer_tomcat_dir}/conf/*" "${tomcat_installer_base_dir}/conf"
-
-    debugLog "remove last tomcat-users end tag"
-    cp -n "${tomcat_installer_base_dir}/conf/tomcat-users.xml" "${tomcat_installer_base_dir}/conf/tomcat-users.xml.orig"
-    cat "${tomcat_installer_base_dir}/conf/tomcat-users.xml.orig" | sed -e "s/^\(<\/tomcat-users>\)//" > "${tomcat_installer_base_dir}/conf/tomcat-users.xml"
-
-    debugLog "adding tomcat admin"
-    cat >> "${tomcat_installer_base_dir}/conf/tomcat-users.xml" <<-EOF
-	<user username="tadmin" password="tadmin" roles="manager-gui,admin-gui"/>
-	</tomcat-users>
-	EOF
-
-    debugLog "copy default tomcat apps"
-    cp -a "${tomcat_installer_tomcat_dir}/webapps/" "${tomcat_installer_base_dir}/"
-
+    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" cp "${tomcat_installer_tomcat_dir}/conf/*" "${tomcat_installer_base_dir}/conf"
 
     debugLog "set up policy directory with logical link to default policy"
     sudo -u "${tomcat_installer_tc_admin_user}" ln -s "${tomcat_installer_base_dir}/conf/catalina.policy" "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy"
