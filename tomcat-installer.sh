@@ -80,18 +80,25 @@ function tomcat_installer_help() {
 	EOF
 }
 
+
+function group_exists() {
+    [ "${#}" -lt 1 ] && echo "ERROR: usage: group_exists <group_name>" && return 1
+    grep "${1}" /etc/group
+    return "${?}"
+}
+
+
 function tomcat_installer_create_users() {
 
-    id -g "${tomcat_installer_tomcat_group}"  || sudo groupadd "${tomcat_installer_tomcat_group}"
-    id -g "${tomcat_installer_install_user}"  || sudo groupadd "${tomcat_installer_install_user}"
-    id -g "${tomcat_installer_tomcat_service_user}"  || sudo groupadd "${tomcat_installer_tomcat_service_user}"
-    id -g "${tomcat_installer_tomcat_admin_user}" || sudo groupadd "${tomcat_installer_tomcat_admin_user}"
-    id -g "${tomcat_installer_tc_admin_user}" || sudo groupadd "${tomcat_installer_tc_admin_user}"
+    group_exists "${tomcat_installer_tomcat_group}"  || sudo groupadd "${tomcat_installer_tomcat_group}"
+    group_exists "${tomcat_installer_install_user}"  || sudo groupadd "${tomcat_installer_install_user}"
+    group_exists "${tomcat_installer_tomcat_admin_user}" || sudo groupadd "${tomcat_installer_tomcat_admin_user}"
+    group_exists "${tomcat_installer_tc_admin_user}" || sudo groupadd "${tomcat_installer_tc_admin_user}"
 
     id -nu "${tomcat_installer_install_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_install_user}" "${tomcat_installer_install_user}"
-    id -nu "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_service_user}" "${tomcat_installer_tomcat_service_user}"
     id -nu "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_admin_user}"
     id -nu "${tomcat_installer_tc_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tc_admin_user}" "${tomcat_installer_tc_admin_user}"
+    id -nu "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_service_user}" "${tomcat_installer_tomcat_service_user}"
 
     # all users belong to tomcat group
     sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_install_user}"
@@ -185,21 +192,7 @@ function tomcat_installer_install() {
 }
 
 
-# tomcat_installer_create_instance
-#
-# create a tomcat instance following catalina_base conventions.
-#
-function tomcat_installer_create_instance() {
-
-    [ "${#}" -lt 2 ] && echo "ERROR: usage: tomcat_create_instance tomcatHomeDir tacTomcatDir" && return 1
-
-    local tomcat_installer_tomcat_dir="${1}"
-    local tomcat_installer_base_dir="${2}"
-
-    create_user_directory "${tomcat_installer_base_dir}" \
-                          "${tomcat_installer_tc_admin_user}" \
-                          "${tomcat_installer_tomcat_group}"
-
+function tomcat_installer_create_instance_folders() {
     sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/bin"
     sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/lib"
     sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/conf"
@@ -209,6 +202,27 @@ function tomcat_installer_create_instance() {
     sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/work"
     sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/temp"
     sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/logs"
+}
+
+export -f tomcat_installer_create_instance_folders
+
+
+# tomcat_installer_create_instance
+#
+# create a tomcat instance following catalina_base conventions.
+#
+function tomcat_installer_create_instance() {
+
+    [ "${#}" -lt 1 ] && echo "ERROR: usage: tomcat_create_instance <base_dir>" && return 1
+
+    local tomcat_installer_base_dir="${1}"
+
+    create_user_directory "${tomcat_installer_base_dir}" \
+                          "${tomcat_installer_tc_admin_user}" \
+                          "${tomcat_installer_tomcat_group}"
+
+#    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" 
+    tomcat_installer_create_instance_folders
 
     debugLog "copy conf settings"
     sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" cp "${tomcat_installer_tomcat_dir}/conf/*" "${tomcat_installer_base_dir}/conf"
@@ -296,7 +310,7 @@ function tomcat_installer() {
 
     [ -n "${DEBUG_LOG}" ] && echo_scope
 
-    "${tomcat_installer_command[@]}"
+    "${tomcat_installer_command[@]}" "${@}"
 
 }
 
