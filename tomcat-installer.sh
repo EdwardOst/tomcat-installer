@@ -1,5 +1,5 @@
 set -e
-set -x
+#set -x
 
 tomcat_installer_script_path=$(readlink -e "${BASH_SOURCE[0]}")
 tomcat_installer_script_dir="${tomcat_installer_script_path%/*}"
@@ -173,7 +173,7 @@ function tomcat_installer_install() {
 
     # unzip tomcat file
     sudo -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" \
-    tar -xzpf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
+        tar -xzpf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
 
     # grant permissions on work, temp, and logs to service user
     sudo chown -R "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" \
@@ -192,21 +192,6 @@ function tomcat_installer_install() {
 }
 
 
-function tomcat_installer_create_instance_folders() {
-    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/bin"
-    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/lib"
-    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/conf"
-    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/conf/policy.d"
-    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/webapps"
-
-    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/work"
-    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/temp"
-    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" mkdir "${tomcat_installer_base_dir}/logs"
-}
-
-export -f tomcat_installer_create_instance_folders
-
-
 # tomcat_installer_create_instance
 #
 # create a tomcat instance following catalina_base conventions.
@@ -221,14 +206,26 @@ function tomcat_installer_create_instance() {
                           "${tomcat_installer_tc_admin_user}" \
                           "${tomcat_installer_tomcat_group}"
 
-#    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" 
-    tomcat_installer_create_instance_folders
+    # all directories other than conf are rwx for owner, r-x for group, and none for other
+    sudo -s -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" <<-EOF
+	mkdir -p "${tomcat_installer_base_dir}/bin"
+	mkdir -p "${tomcat_installer_base_dir}/lib"
+	mkdir -p "${tomcat_installer_base_dir}/webapps"
 
-    debugLog "copy conf settings"
-    sudo -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" cp "${tomcat_installer_tomcat_dir}/conf/*" "${tomcat_installer_base_dir}/conf"
+	mkdir -p "${tomcat_installer_base_dir}/work"
+	mkdir -p "${tomcat_installer_base_dir}/temp"
+	mkdir -p "${tomcat_installer_base_dir}/logs"
+	EOF
 
-    debugLog "set up policy directory with logical link to default policy"
-    sudo -u "${tomcat_installer_tc_admin_user}" ln -s "${tomcat_installer_base_dir}/conf/catalina.policy" "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy"
+    # conf directory is rw for owner, none for group, and none for other
+    sudo -s <<-EOF
+	cp -R "${tomcat_installer_tomcat_dir}/conf" "${tomcat_installer_base_dir}"
+	mkdir -p "${tomcat_installer_base_dir}/conf/policy.d"
+	[ ! -f "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy" ] && ln -s "${tomcat_installer_base_dir}/conf/catalina.policy" "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy"
+	chown -R "${tomcat_installer_tc_admin_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_base_dir}/conf"
+	chmod 600 \$(find "${tomcat_installer_base_dir}/conf" -type f)
+	chmod 700 \$(find "${tomcat_installer_base_dir}/conf" -type d)
+	EOF
 }
 
 
@@ -310,6 +307,7 @@ function tomcat_installer() {
 
     [ -n "${DEBUG_LOG}" ] && echo_scope
 
+    debugLog "**** ${tomcat_installer_command[@]} ${@}"
     "${tomcat_installer_command[@]}" "${@}"
 
 }

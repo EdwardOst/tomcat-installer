@@ -1,0 +1,4 @@
+sudo rm -rf /opt/repo
+sudo rm -rf /opt/apache-tomcat-8.5.15
+sudo rm -rf /opt/tac
+sudo rm /opt/tomcat
