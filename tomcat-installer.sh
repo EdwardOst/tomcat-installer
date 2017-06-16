@@ -28,7 +28,7 @@ define tomcat_installer_init <<'EOF'
     local tomcat_installer_mirror="${TOMCAT_INSTALLER_MIRROR:-${tomcat_installer_mirror:-apache.osuosl.org}}"
     local tomcat_installer_tomcat_dir="${TOMCAT_INSTALLER_TARGET_DIR:-${tomcat_installer_target_dir:-/opt}}/apache-tomcat-${TOMCAT_INSTALLER_TOMCAT_VERSION:-${tomcat_installer_tomcat_version:-8.5.15}}"
     local tomcat_installer_tomcat_tgz_file="${TOMCAT_INSTALLER_TOMCAT_TGZ_FILE:-${tomcat_installer_tomcat_tgz_file:-apache-tomcat-${tomcat_installer_tomcat_version}.tar.gz}}"
-    local tomcat_installer_umask="${TOMCAT_INSTALLER_UMASK:-${tomcat_installer_umask:-037}}"
+    local tomcat_installer_umask="${TOMCAT_INSTALLER_UMASK:-${tomcat_installer_umask:-027}}"
 EOF
 
 declare -A tomcat_installer_context=(
@@ -164,6 +164,7 @@ function tomcat_installer_install() {
     # privileges should be none for other
     # instance administrative group members should be allowed to su to instance adminstrative account
     #
+    # conf directory is owned by catalina_base service user
     # conf directory is rwx for owner, none for group, and none for other
     # all other directories are rwx for owner, r-x for group, and none for other
     #
@@ -175,11 +176,19 @@ function tomcat_installer_install() {
     sudo -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" \
         tar -xzpf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
 
-    # grant permissions on work, temp, and logs to service user
+    # change ownership on work, temp, and logs to service user
     sudo chown -R "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" \
                   "${tomcat_installer_tomcat_dir}/work/" \
                   "${tomcat_installer_tomcat_dir}/temp/" \
                   "${tomcat_installer_tomcat_dir}/logs/"
+
+    # grant rx to admin group on conf directory
+    sudo -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" \
+        chmod g=rx "${tomcat_installer_tomcat_dir}/conf/"
+
+    # grant r to admin group on conf files
+    sudo -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" \
+        chmod g=r "${tomcat_installer_tomcat_dir}"/conf/*
 
 #    debugLog "add tomcat-users for manager"
 #    cp -n "${tomcat_installer_base_dir}/conf/tomcat-users.xml" "${tomcat_installer_base_dir}/conf/tomcat-users.xml.orig"
@@ -206,26 +215,31 @@ function tomcat_installer_create_instance() {
                           "${tomcat_installer_tc_admin_user}" \
                           "${tomcat_installer_tomcat_group}"
 
-    # all directories other than conf are rwx for owner, r-x for group, and none for other
     sudo -s -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" <<-EOF
+        mkdir -p "${tomcat_installer_base_dir}"
 	mkdir -p "${tomcat_installer_base_dir}/bin"
+	mkdir -p "${tomcat_installer_base_dir}/conf"
 	mkdir -p "${tomcat_installer_base_dir}/lib"
 	mkdir -p "${tomcat_installer_base_dir}/webapps"
 
-	mkdir -p "${tomcat_installer_base_dir}/work"
-	mkdir -p "${tomcat_installer_base_dir}/temp"
-	mkdir -p "${tomcat_installer_base_dir}/logs"
-	EOF
+	mkdir -p "${tomcat_installer_base_dir}/work/"
+	mkdir -p "${tomcat_installer_base_dir}/temp/"
+	mkdir -p "${tomcat_installer_base_dir}/logs/"
 
-    # conf directory is rw for owner, none for group, and none for other
-    sudo -s <<-EOF
 	cp -R "${tomcat_installer_tomcat_dir}/conf" "${tomcat_installer_base_dir}"
 	mkdir -p "${tomcat_installer_base_dir}/conf/policy.d"
 	[ ! -f "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy" ] && ln -s "${tomcat_installer_base_dir}/conf/catalina.policy" "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy"
-	chown -R "${tomcat_installer_tc_admin_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_base_dir}/conf"
-	chmod 600 \$(find "${tomcat_installer_base_dir}/conf" -type f)
-	chmod 700 \$(find "${tomcat_installer_base_dir}/conf" -type d)
+
+	# all directories are rwx for owner, r-x for group, and none for other
+	chmod 750 $(find "${tomcat_installer_base_dir}" -type d)
+
 	EOF
+
+    # change ownership on work, temp, and logs to service user
+    sudo chown -R "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" \
+                  "${tomcat_installer_base_dir}/work/" \
+                  "${tomcat_installer_base_dir}/temp/" \
+                  "${tomcat_installer_base_dir}/logs/"
 }
 
 
