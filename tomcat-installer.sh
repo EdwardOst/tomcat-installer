@@ -143,9 +143,6 @@ function tomcat_installer_download() {
          --directory-prefix="${tomcat_installer_repo_dir}" \
          "http://${tomcat_installer_mirror}/tomcat/${tomcat_major_folder}/v${tomcat_installer_tomcat_version}/bin/${tomcat_installer_tomcat_tgz_file}"
 
-    #chmod -R 740 "${tomcat_installer_repo_dir}"
-    #chmod 750 $(find "${tomcat_installer_repo_dir}" -type d)
-    #sudo chown -R "${tomcat_installer_tomcat_admin_user}:${tomcat_installer_tomcat_group}" "${tomcat_installer_repo_dir}"
 }
 
 function tomcat_installer_install() {
@@ -172,23 +169,22 @@ function tomcat_installer_install() {
     # catalina_base service user should belong to the tomcat group since it will need ro access to catalina_home and catalina_base files
     # catalina_base work, temp, and logs directory owned by service user
 
-    # unzip tomcat file
+    DEBUG_LOG=true
+
+    debugLog "unzip tomcat file"
     sudo -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" \
         tar -xzpf "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}" --directory "${tomcat_installer_target_dir}"
 
-    # change ownership on work, temp, and logs to service user
+    debugLog "change ownership on work, temp, and logs to service user"
     sudo chown -R "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" \
                   "${tomcat_installer_tomcat_dir}/work/" \
                   "${tomcat_installer_tomcat_dir}/temp/" \
                   "${tomcat_installer_tomcat_dir}/logs/"
 
-    # grant rx to admin group on conf directory
-    sudo -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" \
-        chmod g=rx "${tomcat_installer_tomcat_dir}/conf/"
-
-    # grant r to admin group on conf files
-    sudo -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" \
-        chmod g=r "${tomcat_installer_tomcat_dir}"/conf/*
+    sudo -s -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" <<-EOF
+	chmod 750 \$(find "${tomcat_installer_tomcat_dir}/conf" -type d)
+	chmod 740 \$(find "${tomcat_installer_tomcat_dir}/conf" -type f)
+	EOF
 
 #    debugLog "add tomcat-users for manager"
 #    cp -n "${tomcat_installer_base_dir}/conf/tomcat-users.xml" "${tomcat_installer_base_dir}/conf/tomcat-users.xml.orig"
@@ -231,7 +227,7 @@ function tomcat_installer_create_instance() {
 	[ ! -f "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy" ] && ln -s "${tomcat_installer_base_dir}/conf/catalina.policy" "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy"
 
 	# all directories are rwx for owner, r-x for group, and none for other
-	chmod 750 $(find "${tomcat_installer_base_dir}" -type d)
+	chmod 750 \$(find "${tomcat_installer_base_dir}" -type d)
 
 	EOF
 
