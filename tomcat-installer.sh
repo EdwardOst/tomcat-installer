@@ -1,5 +1,11 @@
+[ "${TOMCAT_INSTALLER_FLAG:-0}" -gt 0 ] && return 0
+
+export TOMCAT_INSTALLER_FLAG=1
+
 set -e
 #set -x
+
+
 
 tomcat_installer_script_path=$(readlink -e "${BASH_SOURCE[0]}")
 tomcat_installer_script_dir="${tomcat_installer_script_path%/*}"
@@ -119,7 +125,6 @@ function tomcat_installer_create_users() {
 	# members of tomcat installer group can sudo to tomcat admin and tomcat instance admin without a password
 	%${tomcat_installer_install_user}	ALL=(${tomcat_installer_tomcat_admin_user},${tomcat_installer_tc_admin_user}) NOPASSWD: ALL
 	EOF
-
 }
 
 
@@ -134,6 +139,7 @@ function tomcat_installer_create_folders() {
     fi
 }
 
+
 function tomcat_installer_download() {
     local tomcat_major_version="${tomcat_installer_tomcat_version:0:1}"
     local tomcat_major_folder="tomcat-${tomcat_major_version}"
@@ -144,6 +150,16 @@ function tomcat_installer_download() {
          "http://${tomcat_installer_mirror}/tomcat/${tomcat_major_folder}/v${tomcat_installer_tomcat_version}/bin/${tomcat_installer_tomcat_tgz_file}"
 
 }
+
+
+function tomcat_installer_download_local() {
+    [ "${#}" -lt 1 ] && echo "ERROR: usage: tomcat_installer_download_local <source_dir>" && return 1
+    local tomcat_installer_source_dir="${1}"
+    create_user_directory "${tomcat_installer_repo_dir}"
+    ln -s "${tomcat_installer_source_dir}/${tomcat_installer_tomcat_tgz_file}"
+          "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}"
+}
+
 
 function tomcat_installer_install() {
 
