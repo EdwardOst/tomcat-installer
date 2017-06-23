@@ -3,7 +3,7 @@
 export TOMCAT_INSTALLER_FLAG=1
 
 set -e
-#set -x
+set -x
 
 
 
@@ -15,6 +15,12 @@ source "${tomcat_installer_util_path}"
 
 tomcat_installer_file_path=$(readlink -e "${tomcat_installer_script_dir}/util/file-util.sh")
 source "${tomcat_installer_file_path}"
+
+tomcat_installer_string_path=$(readlink -e "${tomcat_installer_script_dir}/util/string-util.sh")
+source "${tomcat_installer_string_path}"
+
+tomcat_installer_user_path=$(readlink -e "${tomcat_installer_script_dir}/util/user-util.sh")
+source "${tomcat_installer_user_path}"
 
 tomcat_installer_parse_args_path=$(readlink -e "${tomcat_installer_script_dir}/util/parse-args.sh")
 source "${tomcat_installer_parse_args_path}"
@@ -89,7 +95,10 @@ function tomcat_installer_help() {
 
 function group_exists() {
     [ "${#}" -lt 1 ] && echo "ERROR: usage: group_exists <group_name>" && return 1
-    grep "${1}" /etc/group
+    [ -z "${1}" ] && echo -e "ERROR: usage: group_exists <group_name>\nempty group_name argument" && return 1
+
+    cut -d: -f1 /etc/group | grep "^${1}$" > /dev/null 2>&1
+
     return "${?}"
 }
 
@@ -100,6 +109,7 @@ function tomcat_installer_create_users() {
     group_exists "${tomcat_installer_install_user}"  || sudo groupadd "${tomcat_installer_install_user}"
     group_exists "${tomcat_installer_tomcat_admin_user}" || sudo groupadd "${tomcat_installer_tomcat_admin_user}"
     group_exists "${tomcat_installer_tc_admin_user}" || sudo groupadd "${tomcat_installer_tc_admin_user}"
+    group_exists "${tomcat_installer_tomcat_service_user}" || sudo groupadd "${tomcat_installer_tomcat_service_user}"
 
     id -nu "${tomcat_installer_install_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_install_user}" "${tomcat_installer_install_user}"
     id -nu "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_admin_user}"
@@ -110,10 +120,12 @@ function tomcat_installer_create_users() {
     sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_install_user}"
     sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_admin_user}"
     sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_tc_admin_user}"
+    sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_service_user}"
 
     # install user belongs to all admin groups
     sudo usermod -a -G "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_install_user}"
     sudo usermod -a -G "${tomcat_installer_tomcat_tc_admin_user}" "${tomcat_installer_install_user}"
+    sudo usermod -a -G "${tomcat_installer_tomcat_tomcat_service_user}" "${tomcat_installer_install_user}"
 
     sudo tee -a /etc/sudoers.d/tomcat <<-EOF
 	# members of tomcat_admin group can sudo to tomcat_admin user
@@ -122,8 +134,8 @@ function tomcat_installer_create_users() {
 	# members of tomcat instance admin group can sudo to tomcat instance admin
 	%${tomcat_installer_tc_admin_user}	ALL=(${tomcat_installer_tc_admin_user}) ALL
 
-	# members of tomcat installer group can sudo to tomcat admin and tomcat instance admin without a password
-	%${tomcat_installer_install_user}	ALL=(${tomcat_installer_tomcat_admin_user},${tomcat_installer_tc_admin_user}) NOPASSWD: ALL
+	# members of tomcat installer group can sudo to tomcat admin, tomcat instance admin, or tomcat service without a password
+	%${tomcat_installer_install_user}	ALL=(${tomcat_installer_tomcat_admin_user},${tomcat_installer_tc_admin_user},${tomcat_installer_tomcat_service_user}) NOPASSWD: ALL
 	EOF
 }
 
@@ -199,7 +211,7 @@ function tomcat_installer_install() {
 
     sudo -s -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" <<-EOF
 	chmod 750 \$(find "${tomcat_installer_tomcat_dir}/conf" -type d)
-	chmod 740 \$(find "${tomcat_installer_tomcat_dir}/conf" -type f)
+	chmod 640 \$(find "${tomcat_installer_tomcat_dir}/conf" -type f)
 	EOF
 
 #    debugLog "add tomcat-users for manager"
@@ -219,39 +231,48 @@ function tomcat_installer_install() {
 #
 function tomcat_installer_create_instance() {
 
-    [ "${#}" -lt 1 ] && echo "ERROR: usage: tomcat_create_instance <base_dir>" && return 1
+    local usage="ERROR: usage: tomcat_create_instance <base_dir> [ <base_user> [ <base_group> ] ]"
+    [ "${#}" -lt 1 ] && echo -e "${usage}" && return 1
 
-    local tomcat_installer_base_dir="${1}"
+    local base_dir="${1}"
 
-    create_user_directory "${tomcat_installer_base_dir}" \
-                          "${tomcat_installer_tc_admin_user}" \
-                          "${tomcat_installer_tomcat_group}"
+    local base_user="${2:-${tomcat_installer_tc_admin_user}}"; trim base_user
+    [ -z "${base_user}" ] && echo -e "${usage}\nERROR: base_user argument and default are empty" && return 1
+    ! user_exists "${base_user}" && echo "${usage}\nERROR: base_user ${base_user} does not exist" && return 1
 
-    sudo -s -u "${tomcat_installer_tc_admin_user}" -g "${tomcat_installer_tomcat_group}" <<-EOF
-        mkdir -p "${tomcat_installer_base_dir}"
-	mkdir -p "${tomcat_installer_base_dir}/bin"
-	mkdir -p "${tomcat_installer_base_dir}/conf"
-	mkdir -p "${tomcat_installer_base_dir}/lib"
-	mkdir -p "${tomcat_installer_base_dir}/webapps"
+    local base_group="${3:-${tomcat_installer_tomcat_group}}"; trim base_group
+    [ -z "${base_group}" ] && echo "${usage}\nERROR: base_group argument and default are empty" && return 1
+    ! group_exists "${base_group}" && echo "${usage}\nERROR: base_group ${base_group} does not exist" && return 1
 
-	mkdir -p "${tomcat_installer_base_dir}/work/"
-	mkdir -p "${tomcat_installer_base_dir}/temp/"
-	mkdir -p "${tomcat_installer_base_dir}/logs/"
+    create_user_directory "${base_dir}" \
+                          "${base_user}" \
+                          "${base_group}"
 
-	cp -R "${tomcat_installer_tomcat_dir}/conf" "${tomcat_installer_base_dir}"
-	mkdir -p "${tomcat_installer_base_dir}/conf/policy.d"
-	[ ! -f "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy" ] && ln -s "${tomcat_installer_base_dir}/conf/catalina.policy" "${tomcat_installer_base_dir}/conf/policy.d/catalina.policy"
+    sudo -s -u "${base_user}" -g "${base_group}" <<-EOF
+        mkdir -p "${base_dir}"
+	mkdir -p "${base_dir}/bin"
+	mkdir -p "${base_dir}/conf"
+	mkdir -p "${base_dir}/lib"
+	mkdir -p "${base_dir}/webapps"
+
+	mkdir -p "${base_dir}/work/"
+	mkdir -p "${base_dir}/temp/"
+	mkdir -p "${base_dir}/logs/"
+
+	cp -R "${tomcat_installer_tomcat_dir}/conf" "${base_dir}"
+	mkdir -p "${base_dir}/conf/policy.d"
+	[ ! -f "${base_dir}/conf/policy.d/catalina.policy" ] && ln -s "${base_dir}/conf/catalina.policy" "${base_dir}/conf/policy.d/catalina.policy"
 
 	# all directories are rwx for owner, r-x for group, and none for other
-	chmod 750 \$(find "${tomcat_installer_base_dir}" -type d)
+	chmod 750 \$(find "${base_dir}" -type d)
 
 	EOF
 
     # change ownership on work, temp, and logs to service user
     sudo chown -R "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" \
-                  "${tomcat_installer_base_dir}/work/" \
-                  "${tomcat_installer_base_dir}/temp/" \
-                  "${tomcat_installer_base_dir}/logs/"
+                  "${base_dir}/work/" \
+                  "${base_dir}/temp/" \
+                  "${base_dir}/logs/"
 }
 
 
