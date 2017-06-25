@@ -74,19 +74,47 @@ function tomcat_installer_help() {
 	        -c specify an alternative configuration as an associative array
 
 	    subcommands:
+	        help
 	        download
+	        download_local
 	        install
 	        uninstall
-	        help
+	        create_users
+	        create_folders
+		create_instance
 
 	    download
+	        tomcat_installer download [-v tomcat_version] [-u tomcat_service_user] [-g tomcat_group] [-r repo_dir]
+
+	    download_local
 	        tomcat_installer download [-v tomcat_version] [-u tomcat_service_user] [-g tomcat_group] [-r repo_dir]
 
 	    install
 	        tomcat_installer install [-r repo_dir] [-t target_dir]
 
+	        Installs Apache Tomcat in target_dir as CATALINA_HOME.
+
 	    uninstall
 	        tomcat_installer uninstall [-t target_dir]
+
+	    create_users
+	        tomcat_installer create_users
+	        requires sudo
+
+	        Creates a set of system users and groups.
+	        This also allows tasks requiring sudo to be isolated to a small segment of code.
+
+	    create_folders
+	        tomcat_installer create_folders
+	        requires sudo
+
+	        Creates a set of installation working directories and target folders.
+		Permissions and ownership on the folders use the system users and groups created with create_users.
+
+	    create_instance
+	        tomcat_create_instance <base_dir> [ <base_user> [ <base_group> [ <service_user> [ <service_group> ] ] ] ]"
+
+	        Creates a Tomcat instance as CATALINA_BASE using the CATALINA_HOME created by the install command.
 
 	description:
 	    Most directories and files will be created with <tomcat_admin_user>:<tomcat_group> permissions.
@@ -126,10 +154,10 @@ function tomcat_installer_create_users() {
     group_exists "${tomcat_installer_tc_admin_user}" || sudo groupadd "${tomcat_installer_tc_admin_user}"
     group_exists "${tomcat_installer_tomcat_service_user}" || sudo groupadd "${tomcat_installer_tomcat_service_user}"
 
-    id -nu "${tomcat_installer_install_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_install_user}" "${tomcat_installer_install_user}"
-    id -nu "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_admin_user}"
-    id -nu "${tomcat_installer_tc_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tc_admin_user}" "${tomcat_installer_tc_admin_user}"
-    id -nu "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_service_user}" "${tomcat_installer_tomcat_service_user}"
+    user_exists "${tomcat_installer_install_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_install_user}" "${tomcat_installer_install_user}"
+    user_exists "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_admin_user}"
+    user_exists "${tomcat_installer_tc_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tc_admin_user}" "${tomcat_installer_tc_admin_user}"
+    user_exists "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_service_user}" "${tomcat_installer_tomcat_service_user}"
 
     # all users belong to tomcat group
     sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_install_user}"
@@ -142,7 +170,7 @@ function tomcat_installer_create_users() {
     sudo usermod -a -G "${tomcat_installer_tomcat_tc_admin_user}" "${tomcat_installer_install_user}"
     sudo usermod -a -G "${tomcat_installer_tomcat_tomcat_service_user}" "${tomcat_installer_install_user}"
 
-    sudo tee -a /etc/sudoers.d/tomcat <<-EOF
+    sudo tee -a /etc/sudoers.d/tomcat > /dev/null <<-EOF
 	# members of tomcat_admin group can sudo to tomcat_admin user
 	%${tomcat_installer_tomcat_admin_user}	ALL=(${tomcat_installer_tomcat_admin_user}) ALL
 
@@ -182,9 +210,14 @@ function tomcat_installer_download() {
 function tomcat_installer_download_local() {
     [ "${#}" -lt 1 ] && echo "ERROR: usage: tomcat_installer_download_local <source_dir>" && return 1
     local tomcat_installer_source_dir="${1}"
-    create_user_directory "${tomcat_installer_repo_dir}"
-    ln -s "${tomcat_installer_source_dir}/${tomcat_installer_tomcat_tgz_file}"
-          "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}"
+    trim tomcat_installer_source_dir
+    [ ! -d "${tomcat_installer_source_dir}" ] && echo "ERROR: source_dir ${tomcat_installer_source_dir} does not exist" && return 1
+    [ ! -f "${tomcat_installer_source_dir}/${tomcat_installer_tomcat_tgz_file}" ] && echo "ERROR: source file ${tomcat_installer_source_dir}/${tomcat_installer_tomcat_tgz_file} does not exist" && return 1
+    [ ! -d "${tomcat_installer_repo_dir}" ] && echo "ERROR: repo_dir ${tomcat_installer_repo_dir} does not exist" && return 1
+
+    sudo -u "${tomcat_installer_tomcat_admin_user}" \
+        ln -f -s "${tomcat_installer_source_dir}/${tomcat_installer_tomcat_tgz_file}" \
+                 "${tomcat_installer_repo_dir}/${tomcat_installer_tomcat_tgz_file}"
 }
 
 
@@ -230,19 +263,19 @@ function tomcat_installer_create_instance() {
 
     local base_user="${2:-${tomcat_installer_tc_admin_user}}"; trim base_user
     [ -z "${base_user}" ] && echo -e "${usage}\nERROR: base_user argument and default are empty" && return 1
-    ! user_exists "${base_user}" && echo "${usage}\nERROR: base_user ${base_user} does not exist" && return 1
+    ! user_exists "${base_user}" && echo -e "${usage}\nERROR: base_user ${base_user} does not exist" && return 1
 
     local base_group="${3:-${tomcat_installer_tomcat_group}}"; trim base_group
-    [ -z "${base_group}" ] && echo "${usage}\nERROR: base_group argument and default are empty" && return 1
-    ! group_exists "${base_group}" && echo "${usage}\nERROR: base_group ${base_group} does not exist" && return 1
+    [ -z "${base_group}" ] && echo -e "${usage}\nERROR: base_group argument and default are empty" && return 1
+    ! group_exists "${base_group}" && echo -e "${usage}\nERROR: base_group ${base_group} does not exist" && return 1
 
     local service_user="${4:-${tomcat_installer_tomcat_service_user}}"; trim service_user
     [ -z "${service_user}" ] && echo -e "${usage}\nERROR: service_user argument and default are empty" && return 1
-    ! user_exists "${service_user}" && echo "${usage}\nERROR: service_user ${service_user} does not exist" && return 1
+    ! user_exists "${service_user}" && echo -e "${usage}\nERROR: service_user ${service_user} does not exist" && return 1
 
-    local service_group="${5:-${tomcat_installer_tomcat_service_group}}"; trim service_group
-    [ -z "${service_group}" ] && echo "${usage}\nERROR: service_group argument and default are empty" && return 1
-    ! group_exists "${service_group}" && echo "${usage}\nERROR: service_group ${service_group} does not exist" && return 1
+    local service_group="${5:-${tomcat_installer_tomcat_group}}"; trim service_group
+    [ -z "${service_group}" ] && echo -e "${usage}\nERROR: service_group argument and default are empty" && return 1
+    ! group_exists "${service_group}" && echo -e "${usage}\nERROR: service_group ${service_group} does not exist" && return 1
 
     create_user_directory "${base_dir}" "${base_user}" "${base_group}"
 
@@ -304,10 +337,11 @@ function tomcat_installer() {
     declare -A tomcat_installer_subcommands=(
                    ["help"]="tomcat_installer_help"
                    ["download"]="tomcat_installer_download"
-                   ["create_users"]="tomcat_installer_create_users"
-                   ["create_folders"]="tomcat_installer_create_folders"
+                   ["download_local"]="tomcat_installer_download_local"
                    ["install"]="tomcat_installer_install"
                    ["uninstall"]="tomcat_installer_uninstall"
+                   ["create_users"]="tomcat_installer_create_users"
+                   ["create_folders"]="tomcat_installer_create_folders"
                    ["create_instance"]="tomcat_installer_create_instance"
                  )
 
