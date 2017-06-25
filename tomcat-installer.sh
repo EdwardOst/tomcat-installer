@@ -3,7 +3,7 @@
 export TOMCAT_INSTALLER_FLAG=1
 
 set -e
-set -x
+#set -x
 
 
 
@@ -54,21 +54,20 @@ declare -A tomcat_installer_context=(
     ["target_dir"]="${TOMCAT_INSTALLER_TARGET_DIR:-${tomcat_installer_target_dir:-/opt}}"
     ["mirror"]="${TOMCAT_INSTALLER_MIRROR:-${tomcat_installer_mirror:-apache.osuosl.org}}"
     ["tomcat_dir"]="${TOMCAT_INSTALLER_TARGET_DIR:-${tomcat_installer_target_dir:-/opt}}/apache-tomcat-${TOMCAT_INSTALLER_TOMCAT_VERSION:-${tomcat_installer_tomcat_version:-8.5.15}}"
-    ["tomcat_umask"]="${TOMCAT_INSTALLER_UMASK:-${tomcat_installer_umask:-037}}"
+    ["tomcat_umask"]="${TOMCAT_INSTALLER_UMASK:-${tomcat_installer_umask:-027}}"
     )
 #    ["tomcat_tgz_file"]="${TOMCAT_INSTALLER_TOMCAT_TGZ_FILE:-${tomcat_installer_tomcat_tgz_file:-apache-tomcat-${tomcat_installer_tomcat_version}.tar.gz}}"
 
 
 function tomcat_installer_help() {
     cat <<-EOF
-	install tomcat
+	tomcat_installer
 
 	constraints:
 	    script must be run with sufficient privileges to do create folders and chown for target directories and files.
-	    Directories and files will be created with <tomcat_service_user> and <tomcat_group> configurations.
 
 	usage:
-	    tomcat-installer [options] <command> [command-options]
+	    tomcat_installer [options] <command> [command-options] <command-args>
 
 	    options:
 	        -h help
@@ -89,17 +88,33 @@ function tomcat_installer_help() {
 	    uninstall
 	        tomcat_installer uninstall [-t target_dir]
 
+	description:
+	    Most directories and files will be created with <tomcat_admin_user>:<tomcat_group> permissions.
+	    A few will be be created with <tomcat_service_user>: <tomcat_group> permissions.
+
+	    catalina_home files should be owned by an administrative user
+	    catalina_home files should belong to tomcat group
+	    privileges should be rw for the administrative user owner
+	    privileges should be ro for the tomcat group
+	    privileges should be none for other
+	    administrative group members should be allowed to su to adminstrative account
+
+	    catalina_base files should be owned by an instance administrative account
+	    catalina_base files should belong to tomcat group
+	    privileges should be rw for the instance administrative user owner
+	    privileges should be ro for the tomcat group
+	    privileges should be none for other
+	    instance administrative group members should be allowed to su to instance adminstrative account
+
+	    conf directory is owned by catalina_base service user
+	    conf directory is rwx for owner, none for group, and none for other
+	    all other directories are rwx for owner, r-x for group, and none for other
+
+	    catalina_base service user will run the service
+	    catalina_base service user should belong to the tomcat group since it will need ro access to catalina_home and catalina_base files
+	    catalina_base work, temp, and logs directory owned by service user
+
 	EOF
-}
-
-
-function group_exists() {
-    [ "${#}" -lt 1 ] && echo "ERROR: usage: group_exists <group_name>" && return 1
-    [ -z "${1}" ] && echo -e "ERROR: usage: group_exists <group_name>\nempty group_name argument" && return 1
-
-    cut -d: -f1 /etc/group | grep "^${1}$" > /dev/null 2>&1
-
-    return "${?}"
 }
 
 
@@ -134,8 +149,8 @@ function tomcat_installer_create_users() {
 	# members of tomcat instance admin group can sudo to tomcat instance admin
 	%${tomcat_installer_tc_admin_user}	ALL=(${tomcat_installer_tc_admin_user}) ALL
 
-	# members of tomcat installer group can sudo to tomcat admin, tomcat instance admin, or tomcat service without a password
-	%${tomcat_installer_install_user}	ALL=(${tomcat_installer_tomcat_admin_user},${tomcat_installer_tc_admin_user},${tomcat_installer_tomcat_service_user}) NOPASSWD: ALL
+	# tomcat installer can sudo to tomcat admin, tomcat instance admin, or tomcat service without a password
+	${tomcat_installer_install_user}	ALL=(${tomcat_installer_tomcat_admin_user},${tomcat_installer_tc_admin_user},${tomcat_installer_tomcat_service_user}) NOPASSWD: ALL
 	EOF
 }
 
@@ -174,30 +189,7 @@ function tomcat_installer_download_local() {
 
 
 function tomcat_installer_install() {
-
-    # catalina_home files should be owned by an administrative user
-    # catalina_home files should belong to tomcat group
-    # privileges should be rw for the administrative user owner
-    # privileges should be ro for the tomcat group
-    # privileges should be none for other
-    # administrative group members should be allowed to su to adminstrative account
-    #
-    # catalina_base files should be owned by an instance administrative account
-    # catalina_base files should belong to tomcat group
-    # privileges should be rw for the instance administrative user owner
-    # privileges should be ro for the tomcat group
-    # privileges should be none for other
-    # instance administrative group members should be allowed to su to instance adminstrative account
-    #
-    # conf directory is owned by catalina_base service user
-    # conf directory is rwx for owner, none for group, and none for other
-    # all other directories are rwx for owner, r-x for group, and none for other
-    #
-    # catalina_base service user will run the service
-    # catalina_base service user should belong to the tomcat group since it will need ro access to catalina_home and catalina_base files
-    # catalina_base work, temp, and logs directory owned by service user
-
-    DEBUG_LOG=true
+    debugStack
 
     debugLog "unzip tomcat file"
     sudo -u "${tomcat_installer_tomcat_admin_user}" -g "${tomcat_installer_tomcat_group}" \
@@ -231,7 +223,7 @@ function tomcat_installer_install() {
 #
 function tomcat_installer_create_instance() {
 
-    local usage="ERROR: usage: tomcat_create_instance <base_dir> [ <base_user> [ <base_group> ] ]"
+    local usage="usage: tomcat_create_instance <base_dir> [ <base_user> [ <base_group> [ <service_user> [ <service_group> ] ] ] ]"
     [ "${#}" -lt 1 ] && echo -e "${usage}" && return 1
 
     local base_dir="${1}"
@@ -244,9 +236,15 @@ function tomcat_installer_create_instance() {
     [ -z "${base_group}" ] && echo "${usage}\nERROR: base_group argument and default are empty" && return 1
     ! group_exists "${base_group}" && echo "${usage}\nERROR: base_group ${base_group} does not exist" && return 1
 
-    create_user_directory "${base_dir}" \
-                          "${base_user}" \
-                          "${base_group}"
+    local service_user="${4:-${tomcat_installer_tomcat_service_user}}"; trim service_user
+    [ -z "${service_user}" ] && echo -e "${usage}\nERROR: service_user argument and default are empty" && return 1
+    ! user_exists "${service_user}" && echo "${usage}\nERROR: service_user ${service_user} does not exist" && return 1
+
+    local service_group="${5:-${tomcat_installer_tomcat_service_group}}"; trim service_group
+    [ -z "${service_group}" ] && echo "${usage}\nERROR: service_group argument and default are empty" && return 1
+    ! group_exists "${service_group}" && echo "${usage}\nERROR: service_group ${service_group} does not exist" && return 1
+
+    create_user_directory "${base_dir}" "${base_user}" "${base_group}"
 
     sudo -s -u "${base_user}" -g "${base_group}" <<-EOF
         mkdir -p "${base_dir}"
@@ -269,7 +267,7 @@ function tomcat_installer_create_instance() {
 	EOF
 
     # change ownership on work, temp, and logs to service user
-    sudo chown -R "${tomcat_installer_tomcat_service_user}:${tomcat_installer_tomcat_group}" \
+    sudo chown -R "${service_user}:${service_group}" \
                   "${base_dir}/work/" \
                   "${base_dir}/temp/" \
                   "${base_dir}/logs/"
@@ -280,58 +278,62 @@ function tomcat_installer_create_instance() {
 function tomcat_installer() {
 
     declare -A tomcat_installer_options=(
-                          ["-c"]="tomcat_installer_config"
-                          ["--config"]="tomcat_installer_config"
-                          ["-v"]="tomcat_installer_tomcat_version"
-                          ["--version"]="tomcat_installer_tomcat_version"
-                          ["-u"]="tomcat_installer_tomcat_service_user"
-                          ["--user"]="tomcat_installer_tomcat_service_user"
-                          ["-g"]="tomcat_installer_tomcat_group"
-                          ["--group"]="tomcat_installer_tomcat_group"
-                          ["-m"]="tomcat_installer_mirror"
-                          ["-mirror"]="tomcat_installer_mirror"
-                          ["-r"]="tomcat_installer_repo_dir"
-                          ["--repo_dir"]="tomcat_installer_repo_dir"
-                          ["-t"]="tomcat_installer_target_dir"
-                          ["--target"]="tomcat_installer_target_dir"
-                         )
+                   ["-c"]="tomcat_installer_config"
+                   ["--config"]="tomcat_installer_config"
+                   ["-v"]="tomcat_installer_tomcat_version"
+                   ["--version"]="tomcat_installer_tomcat_version"
+                   ["-u"]="tomcat_installer_tomcat_service_user"
+                   ["--user"]="tomcat_installer_tomcat_service_user"
+                   ["-g"]="tomcat_installer_tomcat_group"
+                   ["--group"]="tomcat_installer_tomcat_group"
+                   ["-m"]="tomcat_installer_mirror"
+                   ["-mirror"]="tomcat_installer_mirror"
+                   ["-r"]="tomcat_installer_repo_dir"
+                   ["--repo_dir"]="tomcat_installer_repo_dir"
+                   ["-t"]="tomcat_installer_target_dir"
+                   ["--target"]="tomcat_installer_target_dir"
+                 )
 
     declare -A tomcat_installer_exec_options=(
-                          ["-c"]="load_config"
-                          ["--config"]="load_config"
-                         )
+                   ["-c"]="load_config"
+                   ["--config"]="load_config"
+                 )
 
     declare -A tomcat_installer_args
 
     declare -A tomcat_installer_subcommands=(
-                                            ["help"]="tomcat_installer_help"
-                                            ["download"]="tomcat_installer_download"
-                                            ["create_users"]="tomcat_installer_create_users"
-                                            ["create_folders"]="tomcat_installer_create_folders"
-                                            ["install"]="tomcat_installer_install"
-                                            ["uninstall"]="tomcat_installer_uninstall"
-                                            ["create_instance"]="tomcat_installer_create_instance"
-                                          )
+                   ["help"]="tomcat_installer_help"
+                   ["download"]="tomcat_installer_download"
+                   ["create_users"]="tomcat_installer_create_users"
+                   ["create_folders"]="tomcat_installer_create_folders"
+                   ["install"]="tomcat_installer_install"
+                   ["uninstall"]="tomcat_installer_uninstall"
+                   ["create_instance"]="tomcat_installer_create_instance"
+                 )
 
     declare -A tomcat_installer_descriptions=(
-                          ["-c"]="tomcat_installer_config"
-                          ["--config"]="tomcat_installer_config"
-                          ["-v"]="tomcat_installer_tomcat_version"
-                          ["--version"]="tomcat_installer_tomcat_version"
-                          ["-u"]="tomcat_installer_tomcat_service_user"
-                          ["--user"]="tomcat_installer_tomcat_service_user"
-                          ["-g"]="tomcat_installer_tomcat_group"
-                          ["--group"]="tomcat_installer_tomcat_group"
-                          ["-m"]="tomcat_installer_mirror"
-                          ["-mirror"]="tomcat_installer_mirror"
-                          ["-r"]="tomcat_installer_repo_dir"
-                          ["--repo_dir"]="tomcat_installer_repo_dir"
-                          ["-t"]="tomcat_installer_target_dir"
-                          ["--target"]="tomcat_installer_target_dir"
-                          ["download"]="Download Apache Tomcat to local repository"
-                          ["install"]="Install Apache Tomcat"
-                          ["uninstall"]="Remove Apache Tomcat"
-                         )
+                   ["-c"]="tomcat_installer_config"
+                   ["--config"]="tomcat_installer_config"
+                   ["-v"]="tomcat_installer_tomcat_version"
+                   ["--version"]="tomcat_installer_tomcat_version"
+                   ["-u"]="tomcat_installer_tomcat_service_user"
+                   ["--user"]="tomcat_installer_tomcat_service_user"
+                   ["-g"]="tomcat_installer_tomcat_group"
+                   ["--group"]="tomcat_installer_tomcat_group"
+                   ["-m"]="tomcat_installer_mirror"
+                   ["-mirror"]="tomcat_installer_mirror"
+                   ["-r"]="tomcat_installer_repo_dir"
+                   ["--repo_dir"]="tomcat_installer_repo_dir"
+                   ["-t"]="tomcat_installer_target_dir"
+                   ["--target"]="tomcat_installer_target_dir"
+                   ["download"]="Download Apache Tomcat to local repository"
+                   ["install"]="Install Apache Tomcat"
+                   ["uninstall"]="Remove Apache Tomcat"
+                   ["help"]="print this help message"
+                   ["create_users"]="create tomcat installer users and groups"
+                   ["create_folders"]="create tomcat folders"
+                   ["create_instance"]="create catalina_base tomcat instance"
+                 )
 
     local optindex
     local -a tomcat_installer_command
@@ -354,7 +356,7 @@ function tomcat_installer() {
 
     [ -n "${DEBUG_LOG}" ] && echo_scope
 
-    debugLog "**** ${tomcat_installer_command[@]} ${@}"
+    debugLog "command: ${tomcat_installer_command[@]} ${@}"
     "${tomcat_installer_command[@]}" "${@}"
 
 }
