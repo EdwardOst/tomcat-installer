@@ -295,11 +295,21 @@ function tomcat_installer_create_instance() {
 	[ ! -f "${base_dir}/conf/policy.d/catalina.policy" ] && ln -s "${base_dir}/conf/catalina.policy" "${base_dir}/conf/policy.d/catalina.policy"
 
 	# all directories are rwx for owner, r-x for group, and none for other
-	chmod 750 \$(find "${base_dir}" -type d)
+	chmod 750 "${base_dir}" \
+	          "${base_dir}/bin" \
+	          "${base_dir}/conf" \
+	          "${base_dir}/lib" \
+	          "${base_dir}/webapps" \
+	          "${base_dir}/work/" \
+	          "${base_dir}/temp/" \
+	          "${base_dir}/logs/" \
+	          "${base_dir}/conf" \
+	          "${base_dir}/conf/policy.d"
 
 	EOF
 
     # change ownership on work, temp, and logs to service user
+
     sudo chown -R "${service_user}:${service_group}" \
                   "${base_dir}/work/" \
                   "${base_dir}/temp/" \
