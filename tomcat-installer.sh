@@ -310,9 +310,10 @@ function tomcat_installer_create_instance() {
 	mkdir -p "${base_dir}/logs/"
 	EOF
 
-    sudo -s -u "${base_user}" -g "${base_group}" <<-EOF
-	chmod 750 "${base_dir}"
-	EOF
+    sudo -u "${base_user}" -g "${base_group}" chmod 750 "${base_dir}"
+#    sudo -s -u "${base_user}" -g "${base_group}" <<-EOF
+#	chmod 750 "${base_dir}"
+#	EOF
 }
 
 
