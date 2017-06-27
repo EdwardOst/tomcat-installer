@@ -154,16 +154,19 @@ function tomcat_installer_create_users() {
     group_exists "${tomcat_installer_tc_admin_user}" || sudo groupadd "${tomcat_installer_tc_admin_user}"
     group_exists "${tomcat_installer_tomcat_service_user}" || sudo groupadd "${tomcat_installer_tomcat_service_user}"
 
+    # default groups must match groups in sudo statements in order for nopasswd to work
     user_exists "${tomcat_installer_install_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_install_user}" "${tomcat_installer_install_user}"
-    user_exists "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_admin_user}"
-    user_exists "${tomcat_installer_tc_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tc_admin_user}" "${tomcat_installer_tc_admin_user}"
-    user_exists "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_service_user}" "${tomcat_installer_tomcat_service_user}"
+    user_exists "${tomcat_installer_tomcat_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_admin_user}"
+    user_exists "${tomcat_installer_tc_admin_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_group}" "${tomcat_installer_tc_admin_user}"
+    user_exists "${tomcat_installer_tomcat_service_user}" || sudo useradd -s /usr/sbin/nologin -g "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_service_user}"
 
     # all users belong to tomcat group
     sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_install_user}"
-    sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_admin_user}"
-    sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_tc_admin_user}"
-    sudo usermod -a -G "${tomcat_installer_tomcat_group}" "${tomcat_installer_tomcat_service_user}"
+
+    # add non-default group membership with regular groups
+    sudo usermod -a -G "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_tomcat_admin_user}"
+    sudo usermod -a -G "${tomcat_installer_tc_admin_user}" "${tomcat_installer_tc_admin_user}"
+    sudo usermod -a -G "${tomcat_installer_tomcat_service_user}" "${tomcat_installer_tomcat_service_user}"
 
     # install user belongs to all admin groups
     sudo usermod -a -G "${tomcat_installer_tomcat_admin_user}" "${tomcat_installer_install_user}"
@@ -286,34 +289,30 @@ function tomcat_installer_create_instance() {
 	mkdir -p "${base_dir}/lib"
 	mkdir -p "${base_dir}/webapps"
 
-	mkdir -p "${base_dir}/work/"
-	mkdir -p "${base_dir}/temp/"
-	mkdir -p "${base_dir}/logs/"
-
 	cp -R "${tomcat_installer_tomcat_dir}/conf" "${base_dir}"
 	mkdir -p "${base_dir}/conf/policy.d"
 	[ ! -f "${base_dir}/conf/policy.d/catalina.policy" ] && ln -s "${base_dir}/conf/catalina.policy" "${base_dir}/conf/policy.d/catalina.policy"
 
 	# all directories are rwx for owner, r-x for group, and none for other
-	chmod 750 "${base_dir}" \
-	          "${base_dir}/bin" \
+	chmod 770 "${base_dir}"
+	chmod 750 "${base_dir}/bin" \
 	          "${base_dir}/conf" \
 	          "${base_dir}/lib" \
 	          "${base_dir}/webapps" \
-	          "${base_dir}/work/" \
-	          "${base_dir}/temp/" \
-	          "${base_dir}/logs/" \
 	          "${base_dir}/conf" \
 	          "${base_dir}/conf/policy.d"
-
 	EOF
 
     # change ownership on work, temp, and logs to service user
+    sudo -s -u "${service_user}" -g "${service_group}" <<-EOF
+	mkdir -p "${base_dir}/work/"
+	mkdir -p "${base_dir}/temp/"
+	mkdir -p "${base_dir}/logs/"
+	EOF
 
-    sudo chown -R "${service_user}:${service_group}" \
-                  "${base_dir}/work/" \
-                  "${base_dir}/temp/" \
-                  "${base_dir}/logs/"
+    sudo -s -u "${base_user}" -g "${base_group}" <<-EOF
+	chmod 750 "${base_dir}"
+	EOF
 }
 
 
@@ -383,6 +382,7 @@ function tomcat_installer() {
     local -a tomcat_installer_command
 
     source /dev/stdin <<<"${tomcat_installer_init}"
+
     load_context
 
     umask "${tomcat_installer_umask}"
